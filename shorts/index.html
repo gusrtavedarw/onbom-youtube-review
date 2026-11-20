@@ -386,23 +386,32 @@ function syncSelection() {
     button.setAttribute("aria-current", String(Number(button.dataset.episode) === currentId));
   }
 }
-function renderReader() {
-  const episode = episodeById.get(currentId);
-  const selected = marks(currentId);
-  const sectionLabels = ["첫 훅", "시청 이유", "본문", "중간 훅", "본문", "결말"];
-  const sectionClasses = ["hook", "beat", "beat", "beat pivot", "beat", "beat ending"];
-  const narration = episode.parts.map((part, index) =>
+const sectionLabels = ["첫 훅", "시청 이유", "본문", "중간 훅", "본문", "결말"];
+const sectionClasses = ["hook", "beat", "beat", "beat pivot", "beat", "beat ending"];
+function episodeNarration(episode) {
+  return episode.parts.map((part, index) =>
     `<section class="${sectionClasses[index]}">
       <h3>${sectionLabels[index]} <span class="track">${range(part.start, part.end)}</span></h3>
       <p>${escapeHtml(part.text)}</p>
     </section>`
   ).join("");
-  const cues = episode.parts.flatMap((part, index) => part.cues.map(cue =>
+}
+function episodeCues(episode) {
+  return episode.parts.flatMap((part, index) => part.cues.map(cue =>
     `<div class="cue"><time>${subTime(cue.start)}–${subTime(cue.end)} · ${sectionLabels[index]}</time><p>${escapeHtml(cue.text)}</p></div>`
   )).join("");
-  const links = episode.sources.map(source =>
+}
+function episodeSourceLinks(episode) {
+  return episode.sources.map(source =>
     `<li><a href="${escapeHtml(source.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(source.title)}</a></li>`
   ).join("");
+}
+function renderReader() {
+  const episode = episodeById.get(currentId);
+  const selected = marks(currentId);
+  const narration = episodeNarration(episode);
+  const cues = episodeCues(episode);
+  const links = episodeSourceLinks(episode);
   const id = number(currentId);
   $("#reader").innerHTML = `
     <div class="reader-header">
@@ -410,6 +419,7 @@ function renderReader() {
       <h2 tabindex="-1" id="script-title">${escapeHtml(episode.title)}</h2>
       <div class="actions">
         <button type="button" class="primary" id="copy">이 편 대본 전체 복사</button>
+        <button type="button" id="download-html">이 편 HTML 다운로드</button>
         <button type="button" id="toggle-cuts" aria-pressed="${cutMode}">컷 타임라인</button>
         <label>검토 상태 <select id="episode-status">${Object.entries(statuses).map(([key, value]) =>
           `<option value="${key}" ${selected.status === key ? "selected" : ""}>${value}</option>`
@@ -471,6 +481,69 @@ async function copyNarration() {
   }
   announce("이 편의 낭독문 전체를 복사했습니다.");
 }
+function episodeHtml(episode) {
+  const id = number(episode.id);
+  const title = escapeHtml(episode.title);
+  return `<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>온봄 쇼츠 ${id}편 · ${title}</title>
+<style>
+  :root {font-family:system-ui,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;color:#182c27;background:#eef3f0}
+  body {max-width:840px;margin:auto;padding:24px;line-height:1.65;box-sizing:border-box}
+  main {background:#fff;padding:clamp(16px,4vw,40px);border:1px solid #dce6df;border-radius:14px;overflow-wrap:anywhere}
+  header {border-bottom:1px solid #dce6df;padding-bottom:18px}
+  h1 {line-height:1.25;font-size:clamp(1.4rem,5vw,2.1rem);margin:8px 0}
+  h2 {font-size:1.25rem;margin-top:28px}
+  h3 {font-size:.95rem;margin:.65em 0 .2em}
+  p {margin:.3em 0 .8em}
+  .meta,.track,.cue time {color:#4c635b;font-size:.85rem;font-variant-numeric:tabular-nums}
+  .hook {background:#e2f0e8;border-radius:8px;padding:8px 14px}
+  .cue {border-top:1px solid #dce6df;padding-block:6px}
+  .cue p {margin:.15em 0}
+  a {color:#1c5242;text-underline-offset:3px}
+  @media print {body,main {background:white;padding:0;border:0} .cue,section {break-inside:avoid}}
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <p class="meta">온봄의원 쇼츠 ${id}편 · ${escapeHtml(episode.category)} · 약 ${time(episode.length)}</p>
+    <h1>${title}</h1>
+  </header>
+  <section aria-labelledby="narration-title">
+    <h2 id="narration-title">낭독 대본</h2>
+    ${episodeNarration(episode)}
+  </section>
+  <section aria-labelledby="captions-title">
+    <h2 id="captions-title">자막 타임코드</h2>
+    <p class="meta">타임코드는 녹음 전 가안입니다.</p>
+    ${episodeCues(episode)}
+  </section>
+  <section aria-labelledby="sources-title">
+    <h2 id="sources-title">원본 대본과 근거</h2>
+    <p><a href="${originalBase}#topic-${id}/script">${escapeHtml(episode.original)}</a></p>
+    <ul>${episodeSourceLinks(episode)}</ul>
+  </section>
+</main>
+</body>
+</html>`;
+}
+function downloadEpisode() {
+  const episode = episodeById.get(currentId);
+  const file = new Blob([episodeHtml(episode)], {type:"text/html;charset=utf-8"});
+  const url = URL.createObjectURL(file);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "onbom-short-" + number(episode.id) + ".html";
+  document.body.append(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 30000);
+  announce(number(episode.id) + "편 HTML 다운로드를 시작했습니다.");
+}
 function applyFilters() {
   renderList();
   if (matching.length && !matching.some(episode => episode.id === currentId)) openEpisode(matching[0].id);
@@ -492,6 +565,7 @@ $("#reader").addEventListener("click", event => {
   const id = event.target.closest("button")?.id;
   switch (id) {
     case "copy": copyNarration(); break;
+    case "download-html": downloadEpisode(); break;
     case "toggle-cuts":
       cutMode = !cutMode;
       $("#toggle-cuts").setAttribute("aria-pressed", String(cutMode));
